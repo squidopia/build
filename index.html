@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JS Circuit Simulator</title>
+<style>
+    body {
+        margin: 0;
+        background: #0f1115;
+        color: white;
+        font-family: sans-serif;
+        overflow: hidden;
+    }
+    #toolbar {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        background: #1a1d24;
+        padding: 10px;
+        border-radius: 10px;
+        display: flex;
+        gap: 8px;
+    }
+    button {
+        background: #2a2f3a;
+        border: none;
+        color: white;
+        padding: 6px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+    button.active {
+        background: #4cafef;
+    }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+    <button data-tool="wire">Wire</button>
+    <button data-tool="battery">Battery</button>
+    <button data-tool="light">Light</button>
+    <button data-tool="delete">Delete</button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let gridSize = 30;
+let camera = { x: 0, y: 0, zoom: 1 };
+
+let tool = "wire";
+document.querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => {
+        tool = btn.dataset.tool;
+        document.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+    };
+});
+
+let grid = {};
+let signals = [];
+
+function key(x, y) { return x + "," + y; }
+
+class Cell {
+    constructor(type) {
+        this.type = type;
+        this.power = 0;
+        this.rotation = 0;
+    }
+}
+
+function getCell(x, y) {
+    return grid[key(x,y)];
+}
+
+function setCell(x, y, cell) {
+    grid[key(x,y)] = cell;
+}
+
+function deleteCell(x,y) {
+    delete grid[key(x,y)];
+}
+
+canvas.addEventListener("click", e => {
+    let rect = canvas.getBoundingClientRect();
+    let x = (e.clientX - rect.left - camera.x) / camera.zoom;
+    let y = (e.clientY - rect.top - camera.y) / camera.zoom;
+
+    let gx = Math.floor(x / gridSize);
+    let gy = Math.floor(y / gridSize);
+
+    if (tool === "delete") {
+        deleteCell(gx, gy);
+        return;
+    }
+
+    let cell = new Cell(tool);
+    setCell(gx, gy, cell);
+
+    if (tool === "battery") {
+        signals.push({ x: gx, y: gy, life: 10 });
+    }
+});
+
+canvas.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    let rect = canvas.getBoundingClientRect();
+    let x = (e.clientX - rect.left - camera.x) / camera.zoom;
+    let y = (e.clientY - rect.top - camera.y) / camera.zoom;
+
+    let gx = Math.floor(x / gridSize);
+    let gy = Math.floor(y / gridSize);
+
+    let cell = getCell(gx, gy);
+    if (cell) cell.rotation = (cell.rotation + 1) % 4;
+});
+
+let dragging = false;
+let last = {x:0,y:0};
+
+canvas.addEventListener("mousedown", e => {
+    if (e.button === 1) {
+        dragging = true;
+        last.x = e.clientX;
+        last.y = e.clientY;
+    }
+});
+
+canvas.addEventListener("mousemove", e => {
+    if (dragging) {
+        camera.x += e.clientX - last.x;
+        camera.y += e.clientY - last.y;
+        last.x = e.clientX;
+        last.y = e.clientY;
+    }
+});
+
+canvas.addEventListener("mouseup", () => dragging = false);
+
+canvas.addEventListener("wheel", e => {
+    camera.zoom *= e.deltaY < 0 ? 1.1 : 0.9;
+});
+
+function updateSignals() {
+    let newSignals = [];
+
+    signals.forEach(s => {
+        let cell = getCell(s.x, s.y);
+        if (!cell) return;
+
+        cell.power = 1;
+
+        let dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        dirs.forEach(d => {
+            let nx = s.x + d[0];
+            let ny = s.y + d[1];
+            if (getCell(nx, ny)) {
+                newSignals.push({ x: nx, y: ny, life: s.life - 1 });
+            }
+        });
+    });
+
+    signals = newSignals.filter(s => s.life > 0);
+}
+
+function drawGrid() {
+    ctx.strokeStyle = "#222";
+    for (let x = -100; x < 100; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x*gridSize, -10000);
+        ctx.lineTo(x*gridSize, 10000);
+        ctx.stroke();
+    }
+    for (let y = -100; y < 100; y++) {
+        ctx.beginPath();
+        ctx.moveTo(-10000, y*gridSize);
+        ctx.lineTo(10000, y*gridSize);
+        ctx.stroke();
+    }
+}
+
+function drawCell(x,y,cell) {
+    let px = x * gridSize;
+    let py = y * gridSize;
+
+    ctx.save();
+    ctx.translate(px + gridSize/2, py + gridSize/2);
+    ctx.rotate(cell.rotation * Math.PI/2);
+
+    if (cell.type === "wire") {
+        ctx.strokeStyle = cell.power ? "#4cafef" : "#888";
+        ctx.beginPath();
+        ctx.moveTo(-gridSize/2, 0);
+        ctx.lineTo(gridSize/2, 0);
+        ctx.stroke();
+    }
+
+    if (cell.type === "battery") {
+        ctx.fillStyle = "#ff5555";
+        ctx.fillRect(-10, -10, 20, 20);
+    }
+
+    if (cell.type === "light") {
+        ctx.fillStyle = cell.power ? "#ffff66" : "#333";
+        ctx.beginPath();
+        ctx.arc(0,0,10,0,Math.PI*2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+
+    cell.power = 0;
+}
+
+function loop() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    ctx.save();
+    ctx.translate(camera.x, camera.y);
+    ctx.scale(camera.zoom, camera.zoom);
+
+    drawGrid();
+
+    updateSignals();
+
+    for (let k in grid) {
+        let [x,y] = k.split(",").map(Number);
+        drawCell(x,y,grid[k]);
+    }
+
+    ctx.restore();
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
