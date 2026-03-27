@@ -1,50 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Neon Circuit Sim - Logic Edition</title>
-<style>
-    body { margin: 0; background: #0b0e14; color: #e0e6ed; font-family: 'Segoe UI', sans-serif; overflow: hidden; user-select: none; }
-    #toolbar {
-        position: fixed; top: 20px; left: 20px; background: rgba(26, 29, 36, 0.95);
-        backdrop-filter: blur(10px); padding: 12px; border-radius: 12px;
-        display: flex; flex-direction: column; gap: 6px; border: 1px solid #30363d;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 10; max-height: 90vh; overflow-y: auto;
-    }
-    button {
-        background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
-        padding: 8px 12px; border-radius: 6px; cursor: pointer;
-        transition: all 0.1s; font-weight: bold; text-align: left; font-size: 13px;
-    }
-    button:hover { background: #30363d; border-color: #8b949e; }
-    button.active { background: #238636; color: white; border-color: #2ea043; box-shadow: 0 0 15px rgba(35, 134, 54, 0.4); }
-    .hint { position: fixed; bottom: 20px; left: 20px; color: #8b949e; font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 5px; }
-</style>
-</head>
-<body>
-
-<div id="toolbar">
-    <button data-tool="wire" class="active">Line Wire</button>
-    <button data-tool="cross">Cross Wire</button>
-    <button data-tool="battery">Battery</button>
-    <button data-tool="switch">Switch</button>
-    <button data-tool="push_button">Button</button>
-    <button data-tool="light">Light Bulb</button>
-    <hr style="width:100%; border:0; border-top:1px solid #30363d;">
-    <button data-tool="gate_and">AND Gate</button>
-    <button data-tool="gate_or">OR Gate</button>
-    <button data-tool="gate_not">NOT Gate</button>
-    <hr style="width:100%; border:0; border-top:1px solid #30363d;">
-    <button data-tool="press" style="color: #4cafef;">👆 Press Tool</button>
-    <button data-tool="power" style="color: #ffca28;">⚡ Power Tool</button>
-    <button data-tool="delete" style="color: #ff7b72;">Delete</button>
-    <button id="wipe" style="color: #ff7b72; margin-top: 10px; border-style: dashed;">Wipe Data</button>
-</div>
-
-<div class="hint">Left Click: Place | <b>'R': Rotate Ghost</b> | Right Drag: Pan | Persistence: Auto-saves!</div>
-
-<canvas id="canvas"></canvas>
-
 <script>
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -62,14 +15,57 @@ let isLeftDragging = false;
 let lastMouse = { x: 0, y: 0 };
 
 // --- Persistence ---
-function saveGrid() { localStorage.setItem('neon_circuit_grid', JSON.stringify(grid)); }
+function saveGrid() {
+    localStorage.setItem('neon_circuit_grid', JSON.stringify(grid));
+}
+
 function loadGrid() {
     const data = localStorage.getItem('neon_circuit_grid');
     if (data) grid = JSON.parse(data);
 }
 loadGrid();
 
-document.getElementById('wipe').onclick = () => { if(confirm("Clear everything?")) { grid = {}; saveGrid(); } };
+// --- Level Import / Export ---
+function exportLevel() {
+    let clean = {};
+    for (let k in grid) {
+        let c = grid[k];
+        clean[k] = {
+            type: c.type,
+            rotation: c.rotation,
+            state: c.state,
+            power: c.power
+        };
+    }
+    return btoa(JSON.stringify(clean));
+}
+
+function importLevel(code) {
+    try {
+        let data = JSON.parse(atob(code));
+        grid = {};
+
+        for (let k in data) {
+            let c = data[k];
+            let cell = new Cell(c.type, c.rotation);
+            cell.state = c.state || false;
+            cell.power = c.power || 0;
+            grid[k] = cell;
+        }
+
+        saveGrid();
+    } catch (e) {
+        alert("❌ Invalid level code!");
+    }
+}
+
+// --- UI ---
+document.getElementById('wipe').onclick = () => {
+    if (confirm("Clear everything?")) {
+        grid = {};
+        saveGrid();
+    }
+};
 
 document.querySelectorAll("button[data-tool]").forEach(btn => {
     btn.onclick = () => {
@@ -79,10 +75,18 @@ document.querySelectorAll("button[data-tool]").forEach(btn => {
     };
 });
 
-window.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'r') ghostRotation = (ghostRotation + 1) % 4;
-});
+document.getElementById("levelCode").onclick = () => {
+    let choice = prompt("Type 'export' or paste code:");
 
+    if (choice === "export") {
+        let code = exportLevel();
+        prompt("Copy your level:", code);
+    } else if (choice) {
+        importLevel(choice);
+    }
+};
+
+// --- Cell ---
 class Cell {
     constructor(type, rot = 0) {
         this.type = type;
@@ -96,39 +100,54 @@ class Cell {
 function key(x, y) { return `${x},${y}`; }
 function getCell(x, y) { return grid[key(x,y)]; }
 
-// --- Input Handling ---
+// --- Input ---
 canvas.addEventListener("mousedown", e => {
     if (e.button === 0) { isLeftDragging = true; handleAction(); }
     if (e.button === 2) isRightDragging = true;
-    lastMouse.x = e.clientX; lastMouse.y = e.clientY;
+    lastMouse.x = e.clientX;
+    lastMouse.y = e.clientY;
 });
 
 window.addEventListener("mouseup", e => {
     if (e.button === 0) {
         isLeftDragging = false;
-        for(let k in grid) if(grid[k].type === "push_button") grid[k].state = false;
+        for (let k in grid) {
+            if (grid[k].type === "push_button") {
+                grid[k].state = false;
+            }
+        }
     }
     if (e.button === 2) isRightDragging = false;
     saveGrid();
 });
 
 canvas.addEventListener("mousemove", e => {
-    if (isRightDragging) { camera.x += e.clientX - lastMouse.x; camera.y += e.clientY - lastMouse.y; }
-    lastMouse.x = e.clientX; lastMouse.y = e.clientY;
+    if (isRightDragging) {
+        camera.x += e.clientX - lastMouse.x;
+        camera.y += e.clientY - lastMouse.y;
+    }
+
+    lastMouse.x = e.clientX;
+    lastMouse.y = e.clientY;
+
     let rect = canvas.getBoundingClientRect();
     mouseWorld.x = (e.clientX - rect.left - camera.x) / camera.zoom;
     mouseWorld.y = (e.clientY - rect.top - camera.y) / camera.zoom;
+
     if (isLeftDragging) handleAction();
 });
 
 function handleAction() {
     let gx = Math.floor(mouseWorld.x / gridSize);
     let gy = Math.floor(mouseWorld.y / gridSize);
-    if (tool === "delete") { delete grid[key(gx, gy)]; }
-    else if (tool === "press") {
+
+    if (tool === "delete") {
+        delete grid[key(gx, gy)];
+        saveGrid();
+    } else if (tool === "press") {
         let cell = getCell(gx, gy);
         if (cell) {
-            if (cell.type === "switch" && !isLeftDragging) cell.state = !cell.state;
+            if (cell.type === "switch") cell.state = !cell.state;
             if (cell.type === "push_button") cell.state = true;
         }
     } else if (tool !== "power" && tool !== "press") {
@@ -137,147 +156,229 @@ function handleAction() {
 }
 
 canvas.addEventListener("contextmenu", e => e.preventDefault());
-canvas.addEventListener("wheel", e => {
-    const zoomFactor = e.deltaY < 0 ? 1.05 : 1/1.05; // Less sensitive zoom
-    camera.zoom *= zoomFactor;
-}, {passive: true});
 
-// --- Simulation Logic ---
+canvas.addEventListener("wheel", e => {
+    const zoomFactor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
+    camera.zoom *= zoomFactor;
+    camera.zoom = Math.min(3, Math.max(0.3, camera.zoom));
+}, { passive: true });
+
+// --- Simulation ---
 let lastSimTime = 0;
-const SIM_SPEED = 60; 
+const SIM_SPEED = 60;
 
 function updatePhysics(timestamp) {
     if (timestamp - lastSimTime < SIM_SPEED) return;
     lastSimTime = timestamp;
 
+    // Reset
+    for (let k in grid) {
+        grid[k].nextPower = 0;
+    }
+
+    // Sources
     for (let k in grid) {
         let cell = grid[k];
-        let [x,y] = k.split(",").map(Number);
-        cell.nextPower = 0;
+
         if (cell.type === "battery") cell.nextPower = 1;
         if (cell.type === "switch" && cell.state) cell.nextPower = 1;
         if (cell.type === "push_button" && cell.state) cell.nextPower = 1;
-        if (tool === "power" && Math.floor(mouseWorld.x/gridSize) === x && Math.floor(mouseWorld.y/gridSize) === y) cell.nextPower = 1;
+    }
 
-        // Gates Logic (Look at inputs based on rotation)
+    // Gates
+    for (let k in grid) {
+        let cell = grid[k];
+        let [x, y] = k.split(",").map(Number);
+
         if (cell.type.startsWith("gate_")) {
             let inputs = getGateInputs(x, y, cell);
-            if (cell.type === "gate_and") cell.nextPower = (inputs.filter(p => p).length >= 2) ? 1 : 0;
-            if (cell.type === "gate_or") cell.nextPower = (inputs.some(p => p)) ? 1 : 0;
-            if (cell.type === "gate_not") cell.nextPower = (inputs.some(p => p)) ? 0 : 1;
+
+            if (cell.type === "gate_and") cell.nextPower = inputs.every(p => p) ? 1 : 0;
+            if (cell.type === "gate_or") cell.nextPower = inputs.some(p => p) ? 1 : 0;
+            if (cell.type === "gate_not") cell.nextPower = inputs.some(p => p) ? 0 : 1;
         }
     }
 
-    // Propagation
+    // Propagation (loop-safe)
+    let visited = new Set();
+
+    function spread(x, y) {
+        let k = key(x, y);
+        if (visited.has(k)) return;
+        visited.add(k);
+
+        let cell = getCell(x, y);
+        if (!cell || cell.power !== 1) return;
+
+        let neighbors = getConnectedNeighbors(x, y, cell);
+
+        neighbors.forEach(n => {
+            let neighbor = getCell(n.x, n.y);
+            if (neighbor && canAcceptPower(n.dx, n.dy, neighbor)) {
+                if (neighbor.nextPower !== 1) {
+                    neighbor.nextPower = 1;
+                    spread(n.x, n.y);
+                }
+            }
+        });
+    }
+
     for (let k in grid) {
-        let [x,y] = k.split(",").map(Number);
-        let cell = grid[k];
-        if (cell.power === 1) {
-            let neighbors = getConnectedNeighbors(x, y, cell);
-            neighbors.forEach(nPos => {
-                let neighbor = getCell(nPos.x, nPos.y);
-                if (neighbor && canAcceptPower(nPos.dx, nPos.dy, neighbor)) neighbor.nextPower = 1;
-            });
+        let [x, y] = k.split(",").map(Number);
+        if (grid[k].power === 1) spread(x, y);
+    }
+
+    // Apply
+    for (let k in grid) {
+        grid[k].power = grid[k].nextPower;
+    }
+
+    // Reset buttons
+    for (let k in grid) {
+        if (grid[k].type === "push_button") {
+            grid[k].state = false;
         }
     }
-    for (let k in grid) grid[k].power = grid[k].nextPower;
 }
 
+// --- Helpers ---
 function getGateInputs(x, y, cell) {
-    // Gates usually take inputs from sides that AREN'T their forward rotation
-    let check = [[1,0], [-1,0], [0,1], [0,-1]];
-    return check.map(d => {
-        let n = getCell(x + d[0], y + d[1]);
-        return (n && n.power === 1) ? true : false;
-    });
+    let dirs = [
+        {x:1,y:0}, {x:-1,y:0}, {x:0,y:1}, {x:0,y:-1}
+    ];
+
+    let output = getConnectedNeighbors(x, y, cell)[0];
+
+    return dirs
+        .filter(d => !(d.x === output.dx && d.y === output.dy))
+        .map(d => {
+            let n = getCell(x + d.x, y + d.y);
+            return n && n.power === 1;
+        });
 }
 
 function getConnectedNeighbors(x, y, cell) {
-    let dirs = [[1,0], [-1,0], [0,1], [0,-1]];
-    if (cell.type === "wire") dirs = (cell.rotation % 2 === 0) ? [[1,0], [-1,0]] : [[0,1], [0,-1]];
-    // Gates only output in ONE direction (forward based on rotation)
+    let dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+
+    if (cell.type === "wire") {
+        dirs = (cell.rotation % 2 === 0) ? [[1,0],[-1,0]] : [[0,1],[0,-1]];
+    }
+
     if (cell.type.startsWith("gate_")) {
         let r = cell.rotation;
         dirs = [r===0?[1,0]:r===1?[0,1]:r===2?[-1,0]:[0,-1]];
     }
+
     return dirs.map(d => ({ x: x + d[0], y: y + d[1], dx: d[0], dy: d[1] }));
 }
 
 function canAcceptPower(dx, dy, neighbor) {
-    if (neighbor.type === "wire") return (dy === 0 && neighbor.rotation % 2 === 0) || (dx === 0 && neighbor.rotation % 2 !== 0);
+    if (neighbor.type === "wire") {
+        return (dy === 0 && neighbor.rotation % 2 === 0) ||
+               (dx === 0 && neighbor.rotation % 2 !== 0);
+    }
     return true;
 }
 
-// --- Rendering ---
+// --- Render ---
 function draw(timestamp) {
     ctx.clearRect(0,0,canvas.width,canvas.height);
+
     updatePhysics(timestamp);
+
     ctx.save();
     ctx.translate(camera.x, camera.y);
     ctx.scale(camera.zoom, camera.zoom);
-    
+
     // Grid
-    ctx.strokeStyle = "#161b22"; ctx.lineWidth = 1/camera.zoom;
+    ctx.strokeStyle = "#161b22";
+    ctx.lineWidth = 1 / camera.zoom;
+
     for (let i = -50; i < 50; i++) {
-        ctx.beginPath(); ctx.moveTo(i*gridSize, -2000); ctx.lineTo(i*gridSize, 2000); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(-2000, i*gridSize); ctx.lineTo(2000, i*gridSize); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(i * gridSize, -2000);
+        ctx.lineTo(i * gridSize, 2000);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(-2000, i * gridSize);
+        ctx.lineTo(2000, i * gridSize);
+        ctx.stroke();
     }
 
+    // Ghost
     if (tool !== "delete" && tool !== "press" && tool !== "power") {
         ctx.globalAlpha = 0.3;
-        renderCell(Math.floor(mouseWorld.x / gridSize), Math.floor(mouseWorld.y / gridSize), {type: tool, rotation: ghostRotation, power: 0, state: false});
-        ctx.globalAlpha = 1.0;
+        renderCell(
+            Math.floor(mouseWorld.x / gridSize),
+            Math.floor(mouseWorld.y / gridSize),
+            { type: tool, rotation: ghostRotation, power: 0 }
+        );
+        ctx.globalAlpha = 1;
     }
 
+    // Cells
     for (let k in grid) {
         let [x,y] = k.split(",").map(Number);
         renderCell(x, y, grid[k]);
     }
+
     ctx.restore();
     requestAnimationFrame(draw);
 }
 
 function renderCell(x, y, cell) {
-    let px = x * gridSize, py = y * gridSize;
-    let activeColor = "#4cafef", inactiveColor = "#30363d";
+    let px = x * gridSize;
+    let py = y * gridSize;
+
     ctx.save();
     ctx.translate(px + gridSize/2, py + gridSize/2);
-    
-    if (cell.type === "wire" || cell.type === "cross") {
-        if(cell.type === "wire") ctx.rotate(cell.rotation * Math.PI/2);
-        ctx.strokeStyle = cell.power ? activeColor : inactiveColor;
-        ctx.lineWidth = 4; ctx.beginPath();
-        ctx.moveTo(-gridSize/2, 0); ctx.lineTo(gridSize/2, 0);
-        if(cell.type === "cross") { ctx.moveTo(0, -gridSize/2); ctx.lineTo(0, gridSize/2); }
-        ctx.stroke();
-    } else if (cell.type.startsWith("gate_")) {
+
+    let active = "#4cafef";
+    let inactive = "#30363d";
+
+    if (cell.type === "wire") {
         ctx.rotate(cell.rotation * Math.PI/2);
-        ctx.fillStyle = "#21262d"; ctx.fillRect(-15,-15,30,30);
-        ctx.strokeStyle = cell.power ? activeColor : "#8b949e";
-        ctx.strokeRect(-15,-15,30,30);
-        ctx.fillStyle = "white"; ctx.font = "9px Arial"; ctx.textAlign = "center";
-        ctx.fillText(cell.type.replace("gate_","").toUpperCase(), 0, 4);
-        // Direction arrow
-        ctx.beginPath(); ctx.moveTo(10,0); ctx.lineTo(5,-3); ctx.lineTo(5,3); ctx.fill();
-    } else if (cell.type === "battery") {
-        ctx.fillStyle = "#ff7b72"; ctx.fillRect(-12, -12, 24, 24);
-        ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.fillText("+", 0, 5);
-    } else if (cell.type === "light") {
-        ctx.fillStyle = cell.power ? "#f9e053" : "#161b22";
-        ctx.beginPath(); ctx.arc(0,0,12,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle = "#8b949e"; ctx.stroke();
-    } else if (cell.type === "switch" || cell.type === "push_button") {
-        ctx.fillStyle = "#21262d"; ctx.fillRect(-14,-14,28,28);
-        ctx.strokeStyle = cell.state ? "#2ea043" : "#8b949e";
-        ctx.strokeRect(-14,-14,28,28);
-        ctx.fillStyle = cell.state ? "#2ea043" : "#30363d";
-        ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle = cell.power ? active : inactive;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-gridSize/2, 0);
+        ctx.lineTo(gridSize/2, 0);
+        ctx.stroke();
     }
+
+    else if (cell.type.startsWith("gate_")) {
+        ctx.fillStyle = "#21262d";
+        ctx.fillRect(-15,-15,30,30);
+        ctx.strokeStyle = cell.power ? active : "#8b949e";
+        ctx.strokeRect(-15,-15,30,30);
+        ctx.fillStyle = "white";
+        ctx.font = "9px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(cell.type.replace("gate_","").toUpperCase(), 0, 4);
+    }
+
+    else if (cell.type === "battery") {
+        ctx.fillStyle = "#ff7b72";
+        ctx.fillRect(-12,-12,24,24);
+        ctx.fillStyle = "white";
+        ctx.fillText("+", 0, 5);
+    }
+
+    else if (cell.type === "light") {
+        ctx.fillStyle = cell.power ? "#f9e053" : "#161b22";
+        ctx.beginPath();
+        ctx.arc(0,0,12,0,Math.PI*2);
+        ctx.fill();
+    }
+
     ctx.restore();
 }
 
 requestAnimationFrame(draw);
-window.onresize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+
+window.onresize = () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+};
 </script>
-</body>
-</html>
